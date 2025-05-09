@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image to PDF Converter</title>
+    <style>
+        :root {
+            --primary: #4a6fa5;
+            --secondary: #166088;
+            --light: #f8f9fa;
+            --dark: #343a40;
+            --success: #28a745;
+            --danger: #dc3545;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            color: var(--secondary);
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .upload-area {
+            border: 2px dashed var(--primary);
+            border-radius: 8px;
+            padding: 40px;
+            text-align: center;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+
+        .upload-area:hover {
+            background: rgba(74, 111, 165, 0.05);
+        }
+
+        .upload-area.drag-over {
+            background: rgba(74, 111, 165, 0.1);
+            border-color: var(--secondary);
+        }
+
+        .preview-container {
+            margin-top: 30px;
+        }
+
+        .image-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .image-item {
+            position: relative;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+            transition: transform 0.3s;
+        }
+
+        .image-item:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+
+        .image-preview {
+            width: 100%;
+            height: 150px;
+            object-fit: contain;
+            background: #f9f9f9;
+        }
+
+        .image-actions {
+            display: flex;
+            justify-content: center;
+            padding: 8px;
+            background: #f8f9fa;
+        }
+
+        .action-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            color: var(--primary);
+            font-size: 14px;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+            padding: 15px 0;
+            border-top: 1px solid #eee;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--secondary);
+        }
+
+        .progress-container {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .progress-bar {
+            height: 10px;
+            background: #e9ecef;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .progress {
+            height: 100%;
+            background: var(--success);
+            width: 0%;
+            transition: width 0.3s;
+        }
+
+        .status-text {
+            text-align: center;
+            margin-top: 5px;
+            font-size: 14px;
+        }
+
+        .error-text {
+            color: var(--danger);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 20px;
+            }
+            .upload-area {
+                padding: 25px;
+            }
+            .image-list {
+                grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Image to PDF Converter</h1>
+        
+        <div class="upload-area" id="uploadArea">
+            <div style="font-size: 48px; margin-bottom: 15px;">📁</div>
+            <h3>Drag & Drop your images here</h3>
+            <p>or</p>
+            <button class="btn btn-primary" id="selectFilesBtn">Select Images</button>
+            <input type="file" id="fileInput" accept="image/*" multiple style="display: none;">
+        </div>
+        
+        <div class="preview-container" id="previewContainer" style="display: none;">
+            <h3>Selected Images</h3>
+            <p>Drag to reorder</p>
+            <div class="image-list" id="imageList"></div>
+            
+            <div class="controls">
+                <button class="btn btn-primary" id="generatePdfBtn">Generate PDF</button>
+            </div>
+        </div>
+        
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar">
+                <div class="progress" id="progressBar"></div>
+            </div>
+            <div class="status-text" id="statusText">Processing...</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.14.0/Sortable.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM Elements
+            const uploadArea = document.getElementById('uploadArea');
+            const fileInput = document.getElementById('fileInput');
+            const previewContainer = document.getElementById('previewContainer');
+            const imageList = document.getElementById('imageList');
+            const generatePdfBtn = document.getElementById('generatePdfBtn');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const statusText = document.getElementById('statusText');
+            
+            // State management
+            let images = [];
+            let sortable;
+            
+            // Initialize drag-and-drop sorting
+            function initSortable() {
+                sortable = new Sortable(imageList, {
+                    animation: 150,
+                    ghostClass: 'sortable-ghost',
+                    onEnd: function() {
+                        const items = Array.from(imageList.children);
+                        images = items.map(item => {
+                            return images.find(img => img.id === item.dataset.id);
+                        }).filter(img => img);
+                    }
+                });
+            }
+            
+            // File selection handler
+            document.getElementById('selectFilesBtn').addEventListener('click', function() {
+                fileInput.click();
+            });
+            
+            fileInput.addEventListener('change', handleFileSelect);
+            
+            // Drag and drop handlers
+            ['dragover', 'dragenter'].forEach(event => {
+                uploadArea.addEventListener(event, function(e) {
+                    e.preventDefault();
+                    uploadArea.classList.add('drag-over');
+                });
+            });
+            
+            ['dragleave', 'dragend', 'drop'].forEach(event => {
+                uploadArea.addEventListener(event, function(e) {
+                    e.preventDefault();
+                    uploadArea.classList.remove('drag-over');
+                });
+            });
+            
+            uploadArea.addEventListener('drop', function(e) {
+                e.preventDefault();
+                if (e.dataTransfer.files.length > 0) {
+                    handleFileSelect({ target: { files: e.dataTransfer.files } });
+                }
+            });
+            
+            // Generate PDF handler
+            generatePdfBtn.addEventListener('click', generatePdf);
+            
+            // Handle file selection
+            function handleFileSelect(event) {
+                const files = Array.from(event.target.files || []);
+                const validFiles = files.filter(file => file.type.startsWith('image/'));
+                
+                if (validFiles.length === 0) {
+                    showError('Please select valid image files (PNG, JPG, etc.)');
+                    return;
+                }
+                
+                showProgress('Uploading images...');
+                
+                const formData = new FormData();
+                validFiles.forEach(file => formData.append('files', file));
+                
+                fetch('/upload-images', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error || 'Upload failed'); });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    if (data.images) {
+                        images = data.images;
+                        renderPreviews();
+                        showProgress('Upload complete!', true);
+                    } else {
+                        throw new Error('No images received');
+                    }
+                })
+                .catch(error => {
+                    showError(error.message);
+                })
+                .finally(() => {
+                    fileInput.value = '';
+                });
+            }
+            
+            // Render image previews
+            function renderPreviews() {
+                imageList.innerHTML = '';
+                
+                if (images.length === 0) {
+                    previewContainer.style.display = 'none';
+                    return;
+                }
+                
+                previewContainer.style.display = 'block';
+                
+                images.forEach(img => {
+                    const imgItem = document.createElement('div');
+                    imgItem.className = 'image-item';
+                    imgItem.dataset.id = img.id;
+                    
+                    const imgPreview = document.createElement('img');
+                    imgPreview.className = 'image-preview';
+                    imgPreview.src = 'data:image/jpeg;base64,' + img.data;
+                    imgPreview.alt = img.name;
+                    
+                    const imgActions = document.createElement('div');
+                    imgActions.className = 'image-actions';
+                    
+                    const removeBtn = document.createElement('button');
+                    removeBtn.className = 'action-btn';
+                    removeBtn.innerHTML = '❌ Remove';
+                    removeBtn.addEventListener('click', () => removeImage(img.id));
+                    
+                    imgActions.appendChild(removeBtn);
+                    imgItem.appendChild(imgPreview);
+                    imgItem.appendChild(imgActions);
+                    imageList.appendChild(imgItem);
+                });
+                
+                initSortable();
+            }
+            
+            // Remove an image
+            function removeImage(id) {
+                images = images.filter(img => img.id !== id);
+                renderPreviews();
+            }
+            
+            // Generate PDF
+            function generatePdf() {
+                if (images.length === 0) {
+                    showError('Please add at least one image');
+                    return;
+                }
+                
+                showProgress('Generating PDF...');
+                
+                fetch('/generate-pdf', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ images: images })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => { throw new Error(err.error || 'PDF generation failed'); });
+                    }
+                    return response.blob();
+                })
+                .then(blob => {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'document_' + new Date().toISOString().slice(0, 10) + '.pdf';
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    setTimeout(() => {
+                        URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                        showProgress('PDF generated successfully!', true);
+                    }, 100);
+                })
+                .catch(error => {
+                    showError(error.message);
+                });
+            }
+            
+            // Helper functions
+            function showProgress(message, isSuccess = false) {
+                progressContainer.style.display = 'block';
+                progressBar.style.width = isSuccess ? '100%' : '50%';
+                progressBar.style.backgroundColor = isSuccess ? 'var(--success)' : 'var(--primary)';
+                statusText.textContent = message;
+                statusText.className = 'status-text' + (isSuccess ? '' : ' error-text');
+                
+                if (isSuccess) {
+                    setTimeout(() => {
+                        progressContainer.style.display = 'none';
+                    }, 2000);
+                }
+            }
+            
+            function showError(message) {
+                progressBar.style.width = '100%';
+                progressBar.style.backgroundColor = 'var(--danger)';
+                statusText.textContent = message;
+                statusText.className = 'status-text error-text';
+                progressContainer.style.display = 'block';
+            }
+        });
+    </script>
+</body>
+</html>
